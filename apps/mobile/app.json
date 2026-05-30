@@ -1,0 +1,8 @@
+{
+  "expo": {
+    "name": "VaultKit",
+    "slug": "vaultkit",
+    "scheme": "vaultkit",
+    "platforms": ["ios", "android", "web"]
+  }
+}

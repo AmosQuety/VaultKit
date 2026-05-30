@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+.turbo/
+**/dist/
+**/build/
+
+# Expo / React Native
+.expo/
+.expo-shared/
+**/.expo/
+**/.expo-shared/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Misc caches
+.cache/
+.pytest_cache/
+.eslintcache
+tmp/
+temp/

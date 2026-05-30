@@ -1,0 +1,21 @@
+{
+  "name": "@vaultkit/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios"
+  },
+  "dependencies": {
+    "expo": "^51.0.0",
+    "expo-font": "^12.0.0",
+    "expo-secure-store": "^13.0.0",
+    "expo-sqlite": "^14.0.0",
+    "react": "^18.0.0",
+    "react-native": "^0.74.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

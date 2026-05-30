@@ -1,0 +1,6 @@
+export const sqliteSchema = {
+  workspaces: `CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL, role TEXT NOT NULL, storage_used INTEGER, storage_quota INTEGER, synced_at INTEGER)`,
+  collections: `CREATE TABLE IF NOT EXISTS collections (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, path TEXT NOT NULL)`,
+  assets: `CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, collection_id TEXT, name TEXT NOT NULL, file_type TEXT, size_bytes INTEGER, content_hash TEXT, version_number INTEGER, status TEXT, approval_status TEXT, blur_hash TEXT, local_uri TEXT, sync_status TEXT DEFAULT 'synced')`,
+  uploadQueue: `CREATE TABLE IF NOT EXISTS upload_queue (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, collection_id TEXT, local_uri TEXT NOT NULL, filename TEXT NOT NULL, file_type TEXT, size_bytes INTEGER, idempotency_key TEXT NOT NULL, chunk_offset INTEGER DEFAULT 0, created_at INTEGER)`
+} as const;

@@ -1,0 +1,26 @@
+:root {
+  --vk-bg: #0b0f14;
+  --vk-surface: #111722;
+  --vk-surface-2: #161d2a;
+  --vk-border: rgba(255, 255, 255, 0.12);
+  --vk-text: #edf1f7;
+  --vk-text-muted: #96a0af;
+  --vk-accent: #e8784a;
+  --vk-danger: #cf5a52;
+  --vk-success: #68b684;
+  --vk-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+  --vk-radius: 18px;
+  --vk-mono: 'IBM Plex Mono', monospace;
+  --vk-sans: 'Sora', sans-serif;
+}
+
+[data-theme='light'] {
+  --vk-bg: #f4f1ec;
+  --vk-surface: #fffaf6;
+  --vk-surface-2: #f4ece5;
+  --vk-border: rgba(29, 21, 17, 0.12);
+  --vk-text: #1b1714;
+  --vk-text-muted: #6d6258;
+  --vk-accent: #c5522d;
+  --vk-shadow: 0 12px 36px rgba(37, 24, 15, 0.08);
+}
