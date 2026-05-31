@@ -1,13 +1,14 @@
 import { createHmac, createHash } from 'crypto';
 import { StorageAdapter, UploadResult } from './adapter.interface';
 
-export interface R2Options {
-  accountId: string;
+export interface S3CompatibleOptions {
+  endpoint: string;
   accessKeyId: string;
-  accessKeySecret: string;
+  secretAccessKey: string;
   bucket: string;
-  region?: string;
+  region: string;
   service?: string;
+  forcePathStyle?: boolean;
 }
 
 type HeaderMap = Record<string, string>;
@@ -53,30 +54,48 @@ function getSigningKey(secretKey: string, dateStamp: string, region: string, ser
   return hmac(kService, 'aws4_request');
 }
 
-export class R2StorageAdapter implements StorageAdapter {
-  private readonly opts: Required<Omit<R2Options, 'region' | 'service'>> & { region: string; service: string };
+export class S3CompatibleStorageAdapter implements StorageAdapter {
+  private readonly endpoint: URL;
+  private readonly opts: Required<Omit<S3CompatibleOptions, 'service' | 'forcePathStyle'>> & {
+    service: string;
+    forcePathStyle: boolean;
+  };
 
-  constructor(opts: R2Options) {
+  constructor(opts: S3CompatibleOptions) {
+    this.endpoint = new URL(opts.endpoint.replace(/\/+$/, ''));
     this.opts = {
       ...opts,
-      region: opts.region ?? 'auto',
-      service: opts.service ?? 's3'
+      service: opts.service ?? 's3',
+      forcePathStyle: opts.forcePathStyle ?? true
     };
   }
 
-  private get endpointOrigin(): string {
-    return `https://${this.opts.bucket}.${this.opts.accountId}.r2.cloudflarestorage.com`;
+  private getUrlParts(key: string): { origin: string; pathname: string; host: string } {
+    const safeKey = key.replace(/^\/+/, '');
+    if (this.opts.forcePathStyle) {
+      return {
+        origin: this.endpoint.origin,
+        pathname: `/${this.opts.bucket}/${safeKey}`,
+        host: this.endpoint.host
+      };
+    }
+
+    return {
+      origin: `${this.endpoint.protocol}//${this.opts.bucket}.${this.endpoint.host}`,
+      pathname: `/${safeKey}`,
+      host: `${this.opts.bucket}.${this.endpoint.host}`
+    };
   }
 
   private signRequest(method: string, key: string, extraHeaders: HeaderMap = {}, expiresSeconds?: number): { url: string; headers: HeaderMap } {
     const now = new Date();
     const amzDate = toAmzDate(now);
     const dateStamp = toDateStamp(now);
-    const pathname = `/${key.replace(/^\/+/, '')}`;
+    const { origin, pathname, host } = this.getUrlParts(key);
     const canonicalUri = encodePath(pathname);
     const credentialScope = `${dateStamp}/${this.opts.region}/${this.opts.service}/aws4_request`;
     const headers: HeaderMap = {
-      host: new URL(this.endpointOrigin).host,
+      host,
       'x-amz-date': amzDate,
       ...extraHeaders
     };
@@ -88,7 +107,7 @@ export class R2StorageAdapter implements StorageAdapter {
     const canonicalQuery = expiresSeconds
       ? new URLSearchParams({
           'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
-          'X-Amz-Credential': encodeURIComponent(`${this.opts.accessKeyId}/${credentialScope}`),
+          'X-Amz-Credential': `${this.opts.accessKeyId}/${credentialScope}`,
           'X-Amz-Date': amzDate,
           'X-Amz-Expires': String(expiresSeconds),
           'X-Amz-SignedHeaders': signedHeaders
@@ -111,11 +130,11 @@ export class R2StorageAdapter implements StorageAdapter {
       sha256Hex(canonicalRequest)
     ].join('\n');
 
-    const signingKey = getSigningKey(this.opts.accessKeySecret, dateStamp, this.opts.region, this.opts.service);
+    const signingKey = getSigningKey(this.opts.secretAccessKey, dateStamp, this.opts.region, this.opts.service);
     const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex');
 
     if (expiresSeconds) {
-      const url = new URL(`${this.endpointOrigin}${canonicalUri}`);
+      const url = new URL(`${origin}${canonicalUri}`);
       url.searchParams.set('X-Amz-Algorithm', 'AWS4-HMAC-SHA256');
       url.searchParams.set('X-Amz-Credential', `${this.opts.accessKeyId}/${credentialScope}`);
       url.searchParams.set('X-Amz-Date', amzDate);
@@ -132,7 +151,7 @@ export class R2StorageAdapter implements StorageAdapter {
       `Signature=${signature}`
     ].join(' ');
 
-    return { url: `${this.endpointOrigin}${canonicalUri}`, headers };
+    return { url: `${origin}${canonicalUri}`, headers };
   }
 
   async upload(key: string, buffer: Buffer, contentType: string): Promise<UploadResult> {
@@ -148,7 +167,7 @@ export class R2StorageAdapter implements StorageAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(`R2 upload failed with status ${response.status}`);
+      throw new Error(`S3-compatible upload failed with status ${response.status}: ${await response.text().catch(() => '')}`);
     }
 
     return {
@@ -162,7 +181,7 @@ export class R2StorageAdapter implements StorageAdapter {
     const { url, headers } = this.signRequest('GET', key);
     const response = await fetch(url, { method: 'GET', headers });
     if (!response.ok) {
-      throw new Error(`R2 download failed with status ${response.status}`);
+      throw new Error(`S3-compatible download failed with status ${response.status}`);
     }
 
     const arrayBuffer = await response.arrayBuffer();
@@ -173,7 +192,7 @@ export class R2StorageAdapter implements StorageAdapter {
     const { url, headers } = this.signRequest('DELETE', key);
     const response = await fetch(url, { method: 'DELETE', headers });
     if (!response.ok && response.status !== 404) {
-      throw new Error(`R2 delete failed with status ${response.status}`);
+      throw new Error(`S3-compatible delete failed with status ${response.status}`);
     }
   }
 
@@ -194,7 +213,7 @@ export class R2StorageAdapter implements StorageAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(`R2 move failed with status ${response.status}`);
+      throw new Error(`S3-compatible move failed with status ${response.status}`);
     }
 
     await this.delete(fromKey);

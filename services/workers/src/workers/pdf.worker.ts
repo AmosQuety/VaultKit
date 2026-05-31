@@ -1,11 +1,12 @@
 import { Worker } from 'bullmq';
+import type { AssetProcessingJob } from '../queues/asset.queue';
 import { recordProcessingJob } from '../jobs/processing-log';
 
 export function startPdfWorker() {
   const connectionUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
   return new Worker(
     'asset-processing',
-    async (job) => {
+    async (job: AssetProcessingJob) => {
       if (job.name !== 'pdf_preview') {
         return null;
       }

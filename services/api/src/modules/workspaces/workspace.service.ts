@@ -1,37 +1,45 @@
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import db from '../../db/client';
 import { workspaces, workspace_members } from '../../db/schema';
-import { provisionWorkspace } from './authhub.provisioner';
-import { registerTenantUser } from '../auth/authhub.client';
+import { registerWorkspaceUser } from '../auth/authhub.client';
+import type { CreateWorkspaceInput } from '@vaultkit/shared';
 
-export async function createWorkspace(params: {
-  name: string;
-  slug: string;
-  email: string;
-  password: string;
-}) {
-  const { name, slug, email, password } = params;
-
-  // 1. Provision AuthHub Tenant + OAuth Client
-  const authhub = await provisionWorkspace(name, slug);
+export async function createWorkspace(params: CreateWorkspaceInput) {
+  const {
+    name,
+    slug,
+    email,
+    password,
+    authhub_tenant_id,
+    authhub_client_id,
+    authhub_client_secret
+  } = params;
 
   return await db.transaction(async (tx) => {
-    // 2. Insert workspace into local DB
+    // Programmatic provisioning deferred to Phase 2 — see docs/AUTHHUB_REFERENCE.md
+
+    // 1. Insert workspace into local DB
     const [workspace] = await tx
       .insert(workspaces)
       .values({
         name,
         slug,
-        authhub_tenant_id: authhub.tenantId,
-        authhub_client_id: authhub.clientId,
+        authhub_tenant_id,
+        authhub_client_id,
+        authhub_client_secret,
         storage_used_bytes: 0,
         storage_quota_bytes: 2147483648, // 2GB default
         plan: 'free'
       })
       .returning();
 
-    // 3. Register user on AuthHub under the newly created tenant
-    const authhubUser = await registerTenantUser(authhub.tenantId, email, password);
+    // 2. Register user on AuthHub under the pre-provisioned tenant
+    const authhubUser = await registerWorkspaceUser({
+      clientId: authhub_client_id,
+      email,
+      password,
+      name: name
+    });
     // Safe extraction of the AuthHub user ID
     const authhubUserId = String(
       authhubUser?.id ?? 
@@ -40,7 +48,7 @@ export async function createWorkspace(params: {
       `authhub_user_${Date.now()}`
     );
 
-    // 4. Insert creator as admin member
+    // 3. Insert creator as admin member
     const [member] = await tx
       .insert(workspace_members)
       .values({
@@ -53,7 +61,9 @@ export async function createWorkspace(params: {
       })
       .returning();
 
-    return { workspace, member };
+    const { authhub_client_secret: _authhubClientSecret, ...publicWorkspace } = workspace;
+
+    return { workspace: publicWorkspace, member };
   });
 }
 

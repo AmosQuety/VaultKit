@@ -52,5 +52,5 @@ export interface AuthHubClientConfig {
 export interface ProvisionTenantResponse {
   tenant_id: string;
   client_id: string;
-  client_secret: string;
+  client_secret?: string | null;
 }

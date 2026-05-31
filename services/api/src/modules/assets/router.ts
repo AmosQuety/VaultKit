@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { z } from 'zod';
+import { z } from '../../lib/zod';
 import { authMiddleware, requireRole, requireScope } from '../../middleware/auth.middleware';
 import { validateBody } from '../../middleware/validate.middleware';
 import { initUpload, uploadChunk, completeUpload } from './upload.service';
@@ -39,17 +39,17 @@ export async function assetRoutes(app: FastifyInstance) {
   });
 
   // POST /assets/upload/init
-  app.post('/assets/upload/init', {
+  app.post<{ Body: any }>('/assets/upload/init', {
     preHandler: [
       authMiddleware,
       requireScope('files:upload'),
       requireRole('editor', 'admin'),
       validateBody(initUploadSchema)
     ]
-  }, async (request: FastifyRequest<{ Body: z.infer<typeof initUploadSchema> }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const memberId = request.auth!.member.id;
-    const { filename, fileType, sizeBytes, totalChunks, collectionId, contentHash } = request.body;
+    const { filename, fileType, sizeBytes, totalChunks, collectionId, contentHash } = request.body as any;
 
     try {
       const session = await initUpload({
@@ -85,9 +85,9 @@ export async function assetRoutes(app: FastifyInstance) {
   });
 
   // PUT /assets/upload/:sessionId/chunk/:index
-  app.put('/assets/upload/:sessionId/chunk/:index', {
+  app.put<{ Params: { sessionId: string; index: string }; Body: Buffer }>('/assets/upload/:sessionId/chunk/:index', {
     preHandler: [authMiddleware, requireScope('files:upload')]
-  }, async (request: FastifyRequest<{ Params: { sessionId: string; index: string }; Body: Buffer }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const { sessionId, index } = request.params;
     const chunkIndex = parseInt(index, 10);
@@ -127,9 +127,9 @@ export async function assetRoutes(app: FastifyInstance) {
   });
 
   // POST /assets/upload/:sessionId/complete
-  app.post('/assets/upload/:sessionId/complete', {
+  app.post<{ Params: { sessionId: string } }>('/assets/upload/:sessionId/complete', {
     preHandler: [authMiddleware, requireScope('files:upload')]
-  }, async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const { sessionId } = request.params;
     const memberId = request.auth!.member.id;
@@ -158,9 +158,9 @@ export async function assetRoutes(app: FastifyInstance) {
   });
 
   // GET /assets/:id
-  app.get('/assets/:id', {
+  app.get<{ Params: { id: string } }>('/assets/:id', {
     preHandler: [authMiddleware, requireScope('files:read')]
-  }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const { id } = request.params;
 
@@ -187,14 +187,14 @@ export async function assetRoutes(app: FastifyInstance) {
   });
 
   // PATCH /assets/:id
-  app.patch('/assets/:id', {
+  app.patch<{ Params: { id: string }; Body: any }>('/assets/:id', {
     preHandler: [
       authMiddleware,
       requireScope('files:upload'),
       requireRole('editor', 'admin'),
       validateBody(updateAssetSchema)
     ]
-  }, async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof updateAssetSchema> }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const { id } = request.params;
     const memberId = request.auth!.member.id;
@@ -204,7 +204,7 @@ export async function assetRoutes(app: FastifyInstance) {
         id,
         workspaceId,
         memberId,
-        updates: request.body
+        updates: request.body as any
       });
 
       reply.status(200).send({
@@ -224,9 +224,9 @@ export async function assetRoutes(app: FastifyInstance) {
   });
 
   // DELETE /assets/:id
-  app.delete('/assets/:id', {
+  app.delete<{ Params: { id: string } }>('/assets/:id', {
     preHandler: [authMiddleware, requireScope('files:delete'), requireRole('editor', 'admin')]
-  }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const { id } = request.params;
     const memberId = request.auth!.member.id;
@@ -260,9 +260,9 @@ export async function assetRoutes(app: FastifyInstance) {
   });
 
   // GET /assets/:id/presign
-  app.get('/assets/:id/presign', {
+  app.get<{ Params: { id: string } }>('/assets/:id/presign', {
     preHandler: [authMiddleware, requireScope('files:read')]
-  }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const { id } = request.params;
 

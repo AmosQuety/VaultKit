@@ -5,12 +5,13 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc -p ../../tsconfig.json --outDir dist",
+    "build": "tsc -p tsconfig.json",
     "migrate": "ts-node src/db/migrate.ts",
-    "seed": "ts-node src/seed/seed.ts"
+    "seed": "ts-node src/seed/seed.ts",
+    "test": "node -r ts-node/register/transpile-only --test test/workspace-provisioning.test.js"
   },
   "dependencies": {
-    "@fastify/cors": "^9.0.0",
+    "@fastify/cors": "^11.2.0",
     "@fastify/helmet": "^13.0.0",
     "bullmq": "^5.77.6",
     "dotenv": "^16.0.0",
@@ -24,6 +25,7 @@
     "drizzle-kit": "^0.31.10",
     "ts-node": "^10.0.0",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "@types/pg": "^8.6.6"
   }
 }

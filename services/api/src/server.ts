@@ -1,9 +1,19 @@
 import Fastify from 'fastify';
+// Global safety nets: log unhandled errors to avoid the dev server exiting when
+// external services (like Redis) are flaky during local E2E runs.
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('Uncaught exception (logged):', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error('Unhandled promise rejection (logged):', reason);
+});
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { registerApp } from './app';
 import { config } from './config';
-import { idempotencyMiddleware } from './middleware/idempotency.middleware';
+import { idempotencyOnSend, idempotencyPreHandler } from './middleware/idempotency.middleware';
 import { rateLimitMiddleware } from './middleware/rateLimit.middleware';
 
 async function main() {
@@ -18,8 +28,9 @@ async function main() {
     contentSecurityPolicy: false
   });
 
-  app.addHook('preHandler', idempotencyMiddleware());
-  app.addHook('preHandler', rateLimitMiddleware());
+  app.addHook('preHandler', idempotencyPreHandler);
+  app.addHook('preHandler', rateLimitMiddleware);
+  app.addHook('onSend', idempotencyOnSend);
 
   await registerApp(app as unknown as Parameters<typeof registerApp>[0]);
 

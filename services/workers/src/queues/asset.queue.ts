@@ -18,6 +18,12 @@ export interface AssetProcessingJobData {
   filename: string;
 }
 
+export type AssetProcessingJob = {
+  name: string;
+  data: AssetProcessingJobData;
+  id?: string | number;
+};
+
 export function createAssetProcessingQueue() {
   const connectionUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
   return new Queue<AssetProcessingJobData>('asset-processing', {

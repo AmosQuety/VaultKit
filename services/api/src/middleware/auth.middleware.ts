@@ -108,7 +108,23 @@ async function verifyJwt(token: string): Promise<Record<string, unknown>> {
 }
 
 export async function authMiddleware(request: FastifyRequest, reply: FastifyReply) {
-  const authorization = request.headers.authorization;
+  let authorization = request.headers.authorization as string | undefined;
+
+  // If Authorization header missing, attempt to read HttpOnly cookie named 'vaultkit_access'
+  if (!authorization || Array.isArray(authorization) || !authorization.startsWith('Bearer ')) {
+    const cookieHeader = request.headers.cookie;
+    if (cookieHeader) {
+      const parsed = Object.fromEntries(cookieHeader.split(';').map((c) => {
+        const [k, ...v] = c.split('=');
+        return [k.trim(), decodeURIComponent((v || []).join('=').trim())];
+      }));
+      const accessFromCookie = parsed['vaultkit_access'] as string | undefined;
+      if (accessFromCookie) {
+        authorization = `Bearer ${accessFromCookie}`;
+      }
+    }
+  }
+
   if (!authorization || Array.isArray(authorization) || !authorization.startsWith('Bearer ')) {
     reply.status(401).send({
       success: false,

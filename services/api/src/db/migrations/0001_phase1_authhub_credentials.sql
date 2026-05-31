@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "authhub_client_secret" text;

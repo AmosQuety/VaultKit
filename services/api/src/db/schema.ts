@@ -8,6 +8,7 @@ export const workspaces = pgTable('workspaces', {
   slug: varchar('slug', { length: 100 }).notNull().unique(),
   authhub_tenant_id: varchar('authhub_tenant_id', { length: 255 }).notNull().unique(),
   authhub_client_id: varchar('authhub_client_id', { length: 255 }).notNull(),
+  authhub_client_secret: text('authhub_client_secret'),
   storage_used_bytes: bigint('storage_used_bytes', { mode: 'number' }).default(0).notNull(),
   storage_quota_bytes: bigint('storage_quota_bytes', { mode: 'number' }).default(2147483648).notNull(), // 2GB default
   plan: varchar('plan', { length: 50 }).default('free').notNull(),

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { config } from '../../config';
 
 export interface AuthHubTokenResponse {
@@ -8,13 +9,34 @@ export interface AuthHubTokenResponse {
   expires_in: number;
 }
 
-export function buildAuthorizeUrl(input: { clientId: string; redirectUri: string; scope: string; state: string }): string {
+export interface PkcePair {
+  codeVerifier: string;
+  codeChallenge: string;
+}
+
+export function createPkcePair(): PkcePair {
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+
+  return { codeVerifier, codeChallenge };
+}
+
+export function buildAuthorizeUrl(input: {
+  clientId: string;
+  redirectUri: string;
+  scope: string;
+  state: string;
+  codeChallenge: string;
+  codeChallengeMethod?: 'S256';
+}): string {
   const url = new URL('/api/v1/oauth/authorize', config.authhubBaseUrl);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', input.clientId);
   url.searchParams.set('redirect_uri', input.redirectUri);
   url.searchParams.set('scope', input.scope);
   url.searchParams.set('state', input.state);
+  url.searchParams.set('code_challenge', input.codeChallenge);
+  url.searchParams.set('code_challenge_method', input.codeChallengeMethod ?? 'S256');
   return url.toString();
 }
 
@@ -23,12 +45,14 @@ export async function exchangeAuthorizationCode(input: {
   clientId: string;
   clientSecret?: string;
   redirectUri: string;
+  codeVerifier: string;
 }): Promise<AuthHubTokenResponse> {
   const params: Record<string, string> = {
     grant_type: 'authorization_code',
     code: input.code,
     client_id: input.clientId,
-    redirect_uri: input.redirectUri
+    redirect_uri: input.redirectUri,
+    code_verifier: input.codeVerifier
   };
 
   if (input.clientSecret) {
@@ -82,68 +106,71 @@ export async function refreshAccessToken(input: {
   return (await response.json()) as AuthHubTokenResponse;
 }
 
-export async function provisionWorkspaceTenant(name: string, slug: string): Promise<{ tenantId: string; clientId: string; clientSecret: string }> {
-  // Step 1: Create the tenant
-  const tenantRes = await fetch(new URL('/api/v1/admin/tenants', config.authhubBaseUrl), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.authhubAdminToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ name, slug })
-  });
-
-  if (!tenantRes.ok) {
-    const errText = await tenantRes.text().catch(() => '');
-    throw new Error(`AuthHub tenant creation failed with status ${tenantRes.status}: ${errText}`);
+export async function provisionWorkspaceTenant(name: string, slug: string): Promise<{ tenantId: string; clientId: string; clientSecret: string | null }> {
+  const developerToken = config.authhubDeveloperAccessToken || config.authhubAdminToken;
+  if (!developerToken) {
+    throw new Error('AUTHHUB_DEVELOPER_ACCESS_TOKEN (or AUTHHUB_ADMIN_TOKEN) must be set');
   }
 
-  const tenantData = (await tenantRes.json()) as { tenant_id: string };
-  const tenantId = tenantData.tenant_id;
-
-  // Step 2: Create the OAuth client for this tenant
-  const clientRes = await fetch(new URL('/api/v1/admin/clients', config.authhubBaseUrl), {
+  const response = await fetch(new URL('/api/v1/developer/clients', config.authhubBaseUrl), {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${config.authhubAdminToken}`,
+      Authorization: `Bearer ${developerToken}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      tenant_id: tenantId,
       name: `${name} — VaultKit`,
-      redirect_uris: [`${config.webAppUrl}/auth/callback`],
-      grant_types: ['authorization_code', 'refresh_token', 'client_credentials'],
-      scopes: ['openid', 'profile', 'email', 'files:read', 'files:upload', 'files:delete', 'workspace:manage']
+      redirectUris: [`${config.webAppUrl}/auth/callback`],
+      isConfidential: false
     })
-  });
-
-  if (!clientRes.ok) {
-    const errText = await clientRes.text().catch(() => '');
-    throw new Error(`AuthHub client registration failed with status ${clientRes.status}: ${errText}`);
-  }
-
-  const clientData = (await clientRes.json()) as { client_id: string; client_secret: string };
-
-  return {
-    tenantId,
-    clientId: clientData.client_id,
-    clientSecret: clientData.client_secret
-  };
-}
-
-export async function registerTenantUser(tenantId: string, email: string, password: string): Promise<any> {
-  const response = await fetch(new URL(`/api/v1/admin/tenants/${tenantId}/users`, config.authhubBaseUrl), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.authhubAdminToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ email, password })
   });
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
-    throw new Error(`AuthHub tenant user registration failed with status ${response.status}: ${errText}`);
+    throw new Error(`AuthHub client provisioning failed with status ${response.status}: ${errText}`);
+  }
+
+  const body = (await response.json()) as {
+    client?: { clientId?: string; clientSecret?: string | null };
+    tenant?: { id?: string; clientId?: string };
+  };
+
+  const clientId = body.client?.clientId;
+  const tenantId = body.tenant?.id ?? body.tenant?.clientId;
+
+  if (!clientId || !tenantId) {
+    throw new Error('AuthHub developer client response did not include tenant/client identifiers');
+  }
+
+  return {
+    tenantId,
+    clientId,
+    clientSecret: body.client?.clientSecret ?? null
+  };
+}
+
+export async function registerWorkspaceUser(input: {
+  clientId: string;
+  email: string;
+  password: string;
+  name?: string;
+}): Promise<any> {
+  const response = await fetch(new URL('/api/v1/auth/register', config.authhubBaseUrl), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      email: input.email,
+      password: input.password,
+      client_id: input.clientId,
+      ...(input.name ? { name: input.name } : {})
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`AuthHub user registration failed with status ${response.status}: ${errText}`);
   }
 
   return await response.json();

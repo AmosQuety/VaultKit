@@ -21,8 +21,9 @@ export const config = {
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
   
   // AuthHub
-  authhubBaseUrl: required('AUTHHUB_BASE_URL'),
+  authhubBaseUrl: process.env.AUTHHUB_BASE_URL ?? required('AUTHHUB_URL'),
   authhubJwksUrl: required('AUTHHUB_JWKS_URL'),
+  authhubDeveloperAccessToken: process.env.AUTHHUB_DEVELOPER_ACCESS_TOKEN ?? process.env.AUTHHUB_ADMIN_TOKEN ?? '',
   authhubAdminToken: process.env.AUTHHUB_ADMIN_TOKEN ?? '',
   authhubDashboardClientId: process.env.AUTHHUB_DASHBOARD_CLIENT_ID ?? '',
   authhubDashboardClientSecret: process.env.AUTHHUB_DASHBOARD_CLIENT_SECRET ?? '',
@@ -39,6 +40,14 @@ export const config = {
   r2AccessKeySecret: process.env.R2_ACCESS_KEY_SECRET ?? '',
   r2Bucket: process.env.R2_BUCKET ?? '',
   r2PublicUrl: process.env.R2_PUBLIC_URL ?? '',
+
+  // Backblaze B2 S3-compatible options
+  b2Endpoint: process.env.B2_ENDPOINT ?? process.env.BACKBLAZE_ENDPOINT ?? '',
+  b2Region: process.env.B2_REGION ?? process.env.BACKBLAZE_REGION ?? '',
+  b2AccessKeyId: process.env.B2_ACCESS_KEY_ID ?? process.env.BACKBLAZE_KEY_ID ?? '',
+  b2SecretAccessKey: process.env.B2_SECRET_ACCESS_KEY ?? process.env.BACKBLAZE_APPLICATION_KEY ?? '',
+  b2Bucket: process.env.B2_BUCKET ?? process.env.BACKBLAZE_BUCKET ?? '',
+  b2PublicUrl: process.env.B2_PUBLIC_URL ?? process.env.BACKBLAZE_PUBLIC_URL ?? '',
   
   // Local Storage Options
   localStorageDir: process.env.LOCAL_STORAGE_DIR ?? './storage',

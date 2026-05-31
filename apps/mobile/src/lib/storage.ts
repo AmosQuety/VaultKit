@@ -1,9 +1,10 @@
+import * as SecureStore from 'expo-secure-store';
+
 export async function saveToken(key: string, value: string): Promise<void> {
-  void key;
-  void value;
+  // Omit platform-specific options for compatibility with multiple expo-secure-store versions
+  await SecureStore.setItemAsync(key, value);
 }
 
 export async function loadToken(key: string): Promise<string | null> {
-  void key;
-  return null;
+  return await SecureStore.getItemAsync(key);
 }

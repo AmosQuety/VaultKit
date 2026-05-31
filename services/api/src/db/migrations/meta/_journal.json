@@ -8,6 +8,13 @@
       "when": 1780148364130,
       "tag": "0000_hard_tomorrow_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780200000000,
+      "tag": "0001_phase1_authhub_credentials",
+      "breakpoints": true
     }
   ]
 }

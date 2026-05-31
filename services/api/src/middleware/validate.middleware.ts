@@ -1,13 +1,14 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { ZodSchema } from 'zod';
+import { z } from '../lib/zod';
 
-export function validateBody<T>(schema: ZodSchema<T>) {
+export function validateBody(schema: any) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const result = schema.safeParse(request.body);
-    
+    const result = schema.safeParse(request.body as unknown);
+
     if (!result.success) {
-      const detailedErrors = result.error.errors
-        .map((err) => `${err.path.join('.')}: ${err.message}`)
+      const rawErrors = (result as any).error?.errors ?? (result as any).error?.issues ?? [];
+      const detailedErrors = rawErrors
+        .map((err: any) => `${(err.path || []).join('.')}: ${err.message}`)
         .join(', ');
 
       reply.status(400).send({
@@ -22,6 +23,6 @@ export function validateBody<T>(schema: ZodSchema<T>) {
     }
 
     // Set parsed and validated data back onto request body
-    request.body = result.data;
+    request.body = result.data as any;
   };
 }

@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { z } from 'zod';
+import { z } from '../../lib/zod';
 import crypto from 'crypto';
 import { eq, and, isNull } from 'drizzle-orm';
 import { config } from '../../config';
@@ -8,6 +8,7 @@ import { workspaces } from '../../db/schema';
 import redis from '../../lib/redis';
 import {
   buildAuthorizeUrl,
+  createPkcePair,
   exchangeAuthorizationCode,
   refreshAccessToken
 } from './authhub.client';
@@ -25,8 +26,8 @@ const logoutSchema = z.object({
 
 export async function authRoutes(app: FastifyInstance) {
   // GET /auth/login?workspace=<slug>
-  app.get('/auth/login', async (request: FastifyRequest<{ Querystring: { workspace?: string } }>, reply: FastifyReply) => {
-    const slug = request.query.workspace;
+  app.get<{ Querystring: { workspace?: string } }>('/auth/login', async (request, reply: FastifyReply) => {
+    const slug = (request.query as any).workspace as string | undefined;
     if (!slug) {
       reply.status(400).send({
         success: false,
@@ -51,23 +52,27 @@ export async function authRoutes(app: FastifyInstance) {
 
     const workspace = resolved[0];
     const state = crypto.randomBytes(16).toString('hex');
-    
-    // Store CSRF state in Redis (60s TTL) mapped to the workspace ID
-    await redis.set(`csrf:${state}`, workspace.id, 'EX', 60);
+    const pkce = createPkcePair();
+
+    // Store CSRF state and PKCE verifier in Redis (5 minute TTL) mapped to the workspace ID
+    const statePayload = { workspaceId: workspace.id, codeVerifier: pkce.codeVerifier, issuedAt: Date.now(), attempts: 0 };
+    await redis.set(`csrf:${state}`, JSON.stringify(statePayload), 'EX', 60 * 5);
+    app.log.info({ state, workspace: workspace.id }, 'PKCE state created');
 
     const authorizeUrl = buildAuthorizeUrl({
       clientId: workspace.authhub_client_id,
       redirectUri: `${config.webAppUrl}/auth/callback`,
       scope: 'openid profile email files:read files:upload files:delete workspace:manage',
-      state
+      state,
+      codeChallenge: pkce.codeChallenge
     });
 
     reply.redirect(authorizeUrl);
   });
 
   // GET /auth/callback?code=...&state=...
-  app.get('/auth/callback', async (request: FastifyRequest<{ Querystring: { code?: string; state?: string } }>, reply: FastifyReply) => {
-    const { code, state } = request.query;
+  app.get<{ Querystring: { code?: string; state?: string } }>('/auth/callback', async (request, reply: FastifyReply) => {
+    const { code, state } = request.query as any;
     if (!code || !state) {
       reply.status(400).send({
         success: false,
@@ -77,17 +82,35 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     // Verify CSRF state exists in Redis
-    const workspaceId = await redis.get(`csrf:${state}`);
-    if (!workspaceId) {
+    const stateData = await redis.get(`csrf:${state}`);
+    if (!stateData) {
+      // Provide a clear restart URL so the client can re-initiate login
       reply.status(400).send({
         success: false,
-        error: { code: 'INVALID_TOKEN', message: 'CSRF state verification failed or expired', status: 400 }
+        error: { code: 'CSRF_STATE_EXPIRED', message: 'CSRF state missing or expired', status: 400 },
+        data: { restartUrl: `${config.webAppUrl}/login` }
       });
       return;
     }
 
-    // Single-use delete
-    await redis.del(`csrf:${state}`);
+    let workspaceId: string;
+    let codeVerifier: string;
+    try {
+      const parsed = JSON.parse(stateData) as { workspaceId?: string; codeVerifier?: string };
+      workspaceId = parsed.workspaceId ?? '';
+      codeVerifier = parsed.codeVerifier ?? '';
+    } catch {
+      workspaceId = stateData;
+      codeVerifier = '';
+    }
+
+    if (!workspaceId || !codeVerifier) {
+      reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_TOKEN', message: 'PKCE state payload missing', status: 400 }
+      });
+      return;
+    }
 
     // Look up the workspace credentials
     const resolved = await db
@@ -111,16 +134,46 @@ export async function authRoutes(app: FastifyInstance) {
       const tokenResponse = await exchangeAuthorizationCode({
         code,
         clientId: workspace.authhub_client_id,
-        redirectUri: `${config.webAppUrl}/auth/callback`
+        redirectUri: `${config.webAppUrl}/auth/callback`,
+        codeVerifier
       });
 
+      // Helper to serialize cookies
+      function serializeCookie(name: string, value: string | undefined, opts: { httpOnly?: boolean; secure?: boolean; sameSite?: string; path?: string; maxAge?: number | undefined }) {
+        if (!value) return '';
+        let str = `${name}=${encodeURIComponent(value)}`;
+        if (opts.maxAge !== undefined) str += `; Max-Age=${opts.maxAge}`;
+        if (opts.httpOnly) str += '; HttpOnly';
+        if (opts.secure) str += '; Secure';
+        if (opts.sameSite) str += `; SameSite=${opts.sameSite}`;
+        if (opts.path) str += `; Path=${opts.path}`;
+        return str;
+      }
+
+      const accessMaxAge = typeof tokenResponse.expires_in === 'number' ? tokenResponse.expires_in : undefined;
+      const refreshMaxAge = 60 * 60 * 24 * 30; // 30 days
+      const cookies: string[] = [];
+      const secureCookie = config.nodeEnv !== 'development';
+      cookies.push(serializeCookie('vaultkit_access', tokenResponse.access_token, { httpOnly: true, secure: secureCookie, sameSite: 'Lax', path: '/', maxAge: accessMaxAge }));
+      cookies.push(serializeCookie('vaultkit_refresh', tokenResponse.refresh_token, { httpOnly: true, secure: secureCookie, sameSite: 'Lax', path: '/', maxAge: refreshMaxAge }));
+
+      // Set cookies in response header; CORS is already configured for credentials
+      reply.header('Set-Cookie', cookies.filter(Boolean));
+
+      // Single-use: remove state now that exchange succeeded
+      try {
+        await redis.del(`csrf:${state}`);
+      } catch (e) {
+        app.log.warn({ state }, 'Failed to delete PKCE state after successful exchange');
+      }
+
+      // Return non-sensitive session metadata; tokens live in HttpOnly cookies for web clients
       reply.status(200).send({
         success: true,
         data: {
-          accessToken: tokenResponse.access_token,
-          refreshToken: tokenResponse.refresh_token,
           idToken: tokenResponse.id_token,
-          expiresIn: tokenResponse.expires_in
+          expiresIn: tokenResponse.expires_in,
+          clientId: workspace.authhub_client_id
         }
       });
     } catch (err: any) {
@@ -132,10 +185,22 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // POST /auth/refresh
-  app.post('/auth/refresh', {
+  app.post<{ Body: any }>('/auth/refresh', {
     preHandler: [validateBody(refreshSchema)]
-  }, async (request: FastifyRequest<{ Body: z.infer<typeof refreshSchema> }>, reply: FastifyReply) => {
-    const { refreshToken, clientId, clientSecret } = request.body;
+  }, async (request, reply: FastifyReply) => {
+    let { refreshToken, clientId, clientSecret } = request.body as any;
+
+    // If refresh token not supplied, attempt to read from HttpOnly cookie
+    if (!refreshToken) {
+      const cookieHeader = request.headers.cookie;
+      if (cookieHeader) {
+        const parsed = Object.fromEntries(cookieHeader.split(';').map((c) => {
+          const [k, ...v] = c.split('=');
+          return [k.trim(), decodeURIComponent((v || []).join('=').trim())];
+        }));
+        refreshToken = parsed['vaultkit_refresh'] as string | undefined;
+      }
+    }
 
     try {
       const tokenResponse = await refreshAccessToken({
@@ -144,13 +209,32 @@ export async function authRoutes(app: FastifyInstance) {
         clientSecret
       });
 
+      // Rotate cookies with new tokens
+      function serializeCookie(name: string, value: string | undefined, opts: { httpOnly?: boolean; secure?: boolean; sameSite?: string; path?: string; maxAge?: number | undefined }) {
+        if (!value) return '';
+        let str = `${name}=${encodeURIComponent(value)}`;
+        if (opts.maxAge !== undefined) str += `; Max-Age=${opts.maxAge}`;
+        if (opts.httpOnly) str += '; HttpOnly';
+        if (opts.secure) str += '; Secure';
+        if (opts.sameSite) str += `; SameSite=${opts.sameSite}`;
+        if (opts.path) str += `; Path=${opts.path}`;
+        return str;
+      }
+
+      const accessMaxAge = typeof tokenResponse.expires_in === 'number' ? tokenResponse.expires_in : undefined;
+      const refreshMaxAge = 60 * 60 * 24 * 30;
+      const cookies: string[] = [];
+      const secureCookie = config.nodeEnv !== 'development';
+      cookies.push(serializeCookie('vaultkit_access', tokenResponse.access_token, { httpOnly: true, secure: secureCookie, sameSite: 'Lax', path: '/', maxAge: accessMaxAge }));
+      cookies.push(serializeCookie('vaultkit_refresh', tokenResponse.refresh_token, { httpOnly: true, secure: secureCookie, sameSite: 'Lax', path: '/', maxAge: refreshMaxAge }));
+      reply.header('Set-Cookie', cookies.filter(Boolean));
+
       reply.status(200).send({
         success: true,
         data: {
-          accessToken: tokenResponse.access_token,
-          refreshToken: tokenResponse.refresh_token,
           idToken: tokenResponse.id_token,
-          expiresIn: tokenResponse.expires_in
+          expiresIn: tokenResponse.expires_in,
+          clientId: clientId
         }
       });
     } catch (err: any) {
@@ -166,9 +250,9 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // POST /auth/logout
-  app.post('/auth/logout', {
+  app.post<{ Body: any }>('/auth/logout', {
     preHandler: [validateBody(logoutSchema)]
-  }, async (request: FastifyRequest<{ Body: z.infer<typeof logoutSchema> }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     // Invalidate sessions locally if active or delete tokens.
     // Since OIDC is stateless, client deletes local cookies/tokens.
     reply.status(200).send({

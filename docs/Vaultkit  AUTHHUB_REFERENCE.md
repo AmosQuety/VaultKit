@@ -110,11 +110,15 @@ Returns authorization code to redirect_uri.
 ```
 POST {AUTHHUB_BASE_URL}/oauth/token
 Content-Type: application/x-www-form-urlencoded
+grant_type=authorization_code
+
+-- NOTE (PKCE + public-client): VaultKit implements a public-client PKCE flow for browser/mobile apps.
+-- The browser/mobile app initiates the flow (code_challenge) but DOES NOT hold client_secret.
+-- The VaultKit backend performs the code->token exchange server-side using the stored PKCE `code_verifier`.
 
 grant_type=authorization_code
 &code={authorization_code}
 &client_id={workspace_client_id}
-&client_secret={workspace_client_secret}
 &redirect_uri=https://vaultkit.app/auth/callback
 ```
 
@@ -128,6 +132,8 @@ grant_type=authorization_code
   "expires_in":    900
 }
 ```
+
+Note: For web clients VaultKit sets `HttpOnly` cookies for `access` and `refresh` tokens when the backend completes the exchange. The client-side JavaScript should not store token material in localStorage/sessionStorage in production — instead it should rely on the browser to send cookies (`fetch(..., { credentials: 'include' })`).
 
 **Step 4 — Decode and use the access_token**
 ```json
@@ -150,8 +156,10 @@ Content-Type: application/x-www-form-urlencoded
 
 grant_type=refresh_token
 &refresh_token={refresh_token}
+
+-- When VaultKit uses HttpOnly cookies, the client need not include the `refresh_token` in the body: the VaultKit server will read the `vaultkit_refresh` cookie and call AuthHub's token endpoint server-side.
 &client_id={workspace_client_id}
-&client_secret={workspace_client_secret}
+
 ```
 
 **Response:** New `access_token` + rotated `refresh_token`.
@@ -159,6 +167,11 @@ grant_type=refresh_token
 If refresh_token is expired (>7 days): returns 401 → user must log in again.
 VaultKit should catch this and redirect to login with message: 
 `"Your session expired. Please sign in again."`
+
+Implementation notes (VaultKit server):
+- PKCE state (CSRF + code_verifier) is stored in Redis with a TTL. Recent change: increase TTL from 60s to 5 minutes to reduce false-expiry errors for slow networks or user delays.
+- The Redis `csrf:{state}` entry is single-use and is deleted only after a successful code→token exchange (deferred delete). If the state is missing the callback returns a `restartUrl` so the client can re-initiate login.
+- The server sets `vaultkit_access` and `vaultkit_refresh` cookies as `HttpOnly` and `Secure` (Secure is disabled in development to allow local testing). Ensure CORS is configured with `credentials: true` and web client uses `credentials: 'include'`.
 
 ### Flow 4: Machine-to-Machine (Worker Auth — Client Credentials)
 Used by VaultKit's background workers (thumbnail processing, cleanup jobs) to
@@ -242,6 +255,25 @@ if (!scopes.includes(requiredScope)) return 403 // INSUFFICIENT_PERMISSION
 ## Tenant Provisioning (Admin API)
 
 When a new VaultKit Workspace is created, call AuthHub's Admin API.
+
+### Phase 1 Provisioning Model
+
+Phase 1 does not provision AuthHub tenants or clients programmatically. The developer creates the AuthHub app manually in the AuthHub dashboard, then copies the resulting credentials into VaultKit when creating the workspace.
+
+Copy these values into the `POST /workspaces` request body:
+- `authhub_client_id`
+- `authhub_tenant_id`
+- `authhub_client_secret`
+
+VaultKit stores the client secret server-side only and never returns it in API responses.
+
+Manual flow:
+1. Create the AuthHub app in the dashboard.
+2. Copy the tenant ID, client ID, and client secret.
+3. Submit those values with the new workspace request.
+4. VaultKit uses the stored credentials for login redirects, code exchange, and refresh.
+
+Phase 2 may reintroduce provisioning, but only through a dedicated AuthHub service account flow.
 
 **⚠️ AGENT: Read the actual AuthHub admin routes before implementing this.**
 **These endpoints are based on the AuthHub architecture — verify exact paths.**

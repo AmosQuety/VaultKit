@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { z } from 'zod';
+import { z } from '../../lib/zod';
 import { authMiddleware, requireRole, requireScope } from '../../middleware/auth.middleware';
 import { validateBody } from '../../middleware/validate.middleware';
 import { createCollection, listCollections, getCollection, listCollectionAssets } from './collections.service';
@@ -11,12 +11,12 @@ const createCollectionSchema = z.object({
 
 const collectionsQuerySchema = z.object({
   cursor: z.string().optional().nullable(),
-  limit: z.string().optional().default('20').transform((val) => Math.min(100, Math.max(1, parseInt(val, 10))))
+  limit: z.string().optional().default('20').transform((val: string) => Math.min(100, Math.max(1, parseInt(val, 10))))
 });
 
 const assetsQuerySchema = z.object({
   cursor: z.string().optional().nullable(),
-  limit: z.string().optional().default('20').transform((val) => Math.min(100, Math.max(1, parseInt(val, 10)))),
+  limit: z.string().optional().default('20').transform((val: string) => Math.min(100, Math.max(1, parseInt(val, 10)))),
   sort: z.enum(['name', 'created_at', 'size', 'updated_at']).default('created_at'),
   order: z.enum(['asc', 'desc']).default('desc'),
   type: z.string().optional().nullable()
@@ -24,17 +24,17 @@ const assetsQuerySchema = z.object({
 
 export async function collectionRoutes(app: FastifyInstance) {
   // POST /collections (Create folder)
-  app.post('/collections', {
+  app.post<{ Body: any }>('/collections', {
     preHandler: [
       authMiddleware,
       requireScope('files:upload'),
       requireRole('editor', 'admin'),
       validateBody(createCollectionSchema)
     ]
-  }, async (request: FastifyRequest<{ Body: z.infer<typeof createCollectionSchema> }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const memberId = request.auth!.member.id;
-    const { name, parent_id } = request.body;
+    const { name, parent_id } = request.body as any;
 
     try {
       const collection = await createCollection({
@@ -61,9 +61,9 @@ export async function collectionRoutes(app: FastifyInstance) {
   });
 
   // GET /collections (List root folders)
-  app.get('/collections', {
+  app.get<{ Querystring: Record<string, string | undefined> }>('/collections', {
     preHandler: [authMiddleware, requireScope('files:read')]
-  }, async (request: FastifyRequest<{ Querystring: Record<string, string | undefined> }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
 
     // Use manual parser since querystring query is stringly typed in standard Fastify
@@ -73,7 +73,7 @@ export async function collectionRoutes(app: FastifyInstance) {
         success: false,
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Invalid query parameters: ' + parseResult.error.errors.map(e => e.message).join(', '),
+          message: 'Invalid query parameters: ' + (parseResult as any).error.errors.map((e: any) => e.message).join(', '),
           status: 400
         }
       });
@@ -110,9 +110,9 @@ export async function collectionRoutes(app: FastifyInstance) {
   });
 
   // GET /collections/:id (Fetch folder details)
-  app.get('/collections/:id', {
+  app.get<{ Params: { id: string } }>('/collections/:id', {
     preHandler: [authMiddleware, requireScope('files:read')]
-  }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const { id } = request.params;
 
@@ -143,9 +143,9 @@ export async function collectionRoutes(app: FastifyInstance) {
   });
 
   // GET /collections/:id/assets (List assets in folder)
-  app.get('/collections/:id/assets', {
+  app.get<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>('/collections/:id/assets', {
     preHandler: [authMiddleware, requireScope('files:read')]
-  }, async (request: FastifyRequest<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>, reply: FastifyReply) => {
+  }, async (request, reply: FastifyReply) => {
     const workspaceId = request.auth!.workspace.id;
     const { id: collectionId } = request.params;
 
@@ -165,7 +165,7 @@ export async function collectionRoutes(app: FastifyInstance) {
         success: false,
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Invalid query parameters: ' + parseResult.error.errors.map(e => e.message).join(', '),
+          message: 'Invalid query parameters: ' + (parseResult as any).error.errors.map((e: any) => e.message).join(', '),
           status: 400
         }
       });

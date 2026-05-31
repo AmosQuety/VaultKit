@@ -1,15 +1,19 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { z } from 'zod';
+import { z } from '../../lib/zod';
 import { authMiddleware, requireRole, requireScope } from '../../middleware/auth.middleware';
 import { validateBody } from '../../middleware/validate.middleware';
 import { createWorkspace, getWorkspace } from './workspace.service';
 import { inviteMember, changeMemberRole, removeMember } from './members.service';
+import type { CreateWorkspaceInput } from '@vaultkit/shared';
 
 const createWorkspaceSchema = z.object({
   name: z.string().min(2),
   slug: z.string().regex(/^[a-z0-9-]+$/),
   email: z.string().email(),
-  password: z.string().min(6)
+  password: z.string().min(6),
+  authhub_client_id: z.string().min(1),
+  authhub_tenant_id: z.string().min(1),
+  authhub_client_secret: z.string().min(1)
 });
 
 const inviteMemberSchema = z.object({
@@ -23,13 +27,30 @@ const updateMemberSchema = z.object({
 
 export async function workspaceRoutes(app: FastifyInstance) {
   // POST /workspaces (Public registration)
-  app.post('/workspaces', {
+  app.post<{ Body: CreateWorkspaceInput }>('/workspaces', {
     preHandler: [validateBody(createWorkspaceSchema)]
-  }, async (request: FastifyRequest<{ Body: z.infer<typeof createWorkspaceSchema> }>, reply: FastifyReply) => {
-    const { name, slug, email, password } = request.body;
+  }, async (request, reply: FastifyReply) => {
+    const body = request.body as CreateWorkspaceInput;
+    const {
+      name,
+      slug,
+      email,
+      password,
+      authhub_client_id,
+      authhub_tenant_id,
+      authhub_client_secret
+    } = body;
 
     try {
-      const result = await createWorkspace({ name, slug, email, password });
+      const result = await createWorkspace({
+        name,
+        slug,
+        email,
+        password,
+        authhub_client_id,
+        authhub_tenant_id,
+        authhub_client_secret
+      });
       reply.status(201).send({
         success: true,
         data: result
@@ -47,10 +68,10 @@ export async function workspaceRoutes(app: FastifyInstance) {
   });
 
   // GET /workspaces/:id
-  app.get('/workspaces/:id', {
+  app.get<{ Params: { id: string } }>('/workspaces/:id', {
     preHandler: [authMiddleware, requireScope('files:read')]
-  }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-    const { id } = request.params;
+  }, async (request, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
 
     // Verify requesting user is scoped to this workspace
     if (request.auth?.workspace.id !== id) {
@@ -88,11 +109,11 @@ export async function workspaceRoutes(app: FastifyInstance) {
   });
 
   // POST /workspaces/:id/members/invite
-  app.post('/workspaces/:id/members/invite', {
+  app.post<{ Params: { id: string }; Body: any }>('/workspaces/:id/members/invite', {
     preHandler: [authMiddleware, requireScope('workspace:manage'), requireRole('admin'), validateBody(inviteMemberSchema)]
-  }, async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof inviteMemberSchema> }>, reply: FastifyReply) => {
-    const { id: workspaceId } = request.params;
-    const { email, role } = request.body;
+  }, async (request, reply: FastifyReply) => {
+    const { id: workspaceId } = request.params as any;
+    const { email, role } = request.body as any;
     const adminId = request.auth!.member.id;
 
     if (request.auth?.workspace.id !== workspaceId) {
@@ -128,11 +149,11 @@ export async function workspaceRoutes(app: FastifyInstance) {
   });
 
   // PATCH /workspaces/:id/members/:memberId
-  app.patch('/workspaces/:id/members/:memberId', {
+  app.patch<{ Params: { id: string; memberId: string }; Body: any }>('/workspaces/:id/members/:memberId', {
     preHandler: [authMiddleware, requireScope('workspace:manage'), requireRole('admin'), validateBody(updateMemberSchema)]
-  }, async (request: FastifyRequest<{ Params: { id: string; memberId: string }; Body: z.infer<typeof updateMemberSchema> }>, reply: FastifyReply) => {
-    const { id: workspaceId, memberId } = request.params;
-    const { role } = request.body;
+  }, async (request, reply: FastifyReply) => {
+    const { id: workspaceId, memberId } = request.params as any;
+    const { role } = request.body as any;
 
     if (request.auth?.workspace.id !== workspaceId) {
       reply.status(403).send({
@@ -166,10 +187,10 @@ export async function workspaceRoutes(app: FastifyInstance) {
   });
 
   // DELETE /workspaces/:id/members/:memberId
-  app.delete('/workspaces/:id/members/:memberId', {
+  app.delete<{ Params: { id: string; memberId: string } }>('/workspaces/:id/members/:memberId', {
     preHandler: [authMiddleware, requireScope('workspace:manage'), requireRole('admin')]
-  }, async (request: FastifyRequest<{ Params: { id: string; memberId: string } }>, reply: FastifyReply) => {
-    const { id: workspaceId, memberId } = request.params;
+  }, async (request, reply: FastifyReply) => {
+    const { id: workspaceId, memberId } = request.params as any;
 
     if (request.auth?.workspace.id !== workspaceId) {
       reply.status(403).send({

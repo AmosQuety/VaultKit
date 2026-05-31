@@ -12,3 +12,13 @@ export interface Workspace {
   updated_at: string;
   deleted_at?: string | null;
 }
+
+export interface CreateWorkspaceInput {
+  name: string;
+  slug: string;
+  email: string;
+  password: string;
+  authhub_tenant_id: string;
+  authhub_client_id: string;
+  authhub_client_secret: string;
+}

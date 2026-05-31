@@ -1,9 +1,14 @@
 export function Input(props: { value?: string; placeholder?: string; onChange?: (value: string) => void }) {
+  const handleChange = (event: Event) => {
+    const target = event.target as HTMLInputElement | null;
+    props.onChange?.(target?.value ?? '');
+  };
+
   return (
     <input
       value={props.value}
       placeholder={props.placeholder}
-      onChange={(event) => props.onChange?.((event.target as HTMLInputElement).value)}
+      onChange={handleChange}
       style={{
         width: '100%',
         background: 'var(--vk-surface-2)',

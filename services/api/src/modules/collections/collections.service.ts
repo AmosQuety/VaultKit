@@ -135,7 +135,7 @@ export async function listCollectionAssets(params: {
   }
 
   // Determine sort column
-  let sortColumn = assets.created_at;
+  let sortColumn: any = assets.created_at;
   if (sort === 'name') sortColumn = assets.name;
   else if (sort === 'size') sortColumn = assets.size_bytes;
   else if (sort === 'updated_at') sortColumn = assets.updated_at;

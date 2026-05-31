@@ -1,0 +1,7 @@
+$env:STORAGE_PROVIDER="local"
+pnpm --filter @vaultkit/storage-adapter build
+
+pnpm --filter @vaultkit/api dev
+
+pnpm --filter @vaultkit/web dev
+# open http://localhost:5173 and try Login
